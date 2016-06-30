@@ -1,0 +1,128 @@
+#!/bin/bash
+
+
+
+function alert_clipboard() {
+    local DUR=$(echo $* | sed 's/^.* \([0-9][0-9]*\).*$/\1/')
+    local MSG=$(echo $* | sed 's/\.[^.]*\. *$//')
+
+    echo $DUR $MSG.
+
+    notify-send -t "$DUR"000 '<span color="red"><b>Password Manager</b></span>' "$MSG."
+}
+
+function alert() {
+    notify-send '<span color="red"><b>Password Manager</b></span>' "$*."
+}
+
+
+function confirm_action() {
+    local MSG=$*
+    local RESPONSE=$(echo -e "No\nYes" | rofi -dmenu -p "$*")
+
+    if [[ "$RESPONSE" == "Yes" ]]; then
+        return 0
+    fi
+    return 1
+}
+
+function select_password() {
+    local CAPT=$1
+    local PASSWORDS=$(pass ls | grep '├' | sed 's/^.* //' | grep -v '[[:cntrl:]]' | sort)
+    echo -e "$PASSWORDS" | rofi -dmenu -p "$CAPT"
+
+}
+
+function main() {
+    local RES=""
+    local PASS=""
+    local ACT_STR=""
+
+    local ACTIONS="get
+generate
+move
+copy
+remove
+edit"
+
+
+    local ACTION=$(echo -e "$ACTIONS" | rofi -dmenu -p 'Select action: ')
+
+
+    case $ACTION in
+        "get")
+            PASS=$(select_password 'Get password for: ')
+            if [[ ! -z $PASS ]]; then
+                RES=`pass -c "$PASS" | head -n 1 `
+                alert_clipboard "$RES"
+                return 0
+            fi
+            ;;
+        "edit")
+            PASS=$(select_password 'Edit password for: ')
+            if [[ ! -z $PASS ]]; then
+                RES=$(pass edit "$PASS" 2>&1)
+                alert "$RES"
+
+                return 0
+            fi
+            ;;
+        "copy")
+            ACT_STR="Copy"
+            ;;
+        "generate")
+            PASS=$(echo '' | rofi -dmenu -p 'Generate password for: ' )
+            if [[ ! -z $PASS ]]; then
+                RES=`pass generate -c "$PASS" 30 | head -n 1 `
+                alert "$RES"
+
+                RES=`pass -c "$PASS" | head -n 1 `
+                alert_clipboard "$RES"
+                return 0
+            fi
+            ;;
+
+        "remove")
+            PASS=$(select_password 'Remove password for: ')
+            if [[ ! -z $PASS ]]; then
+                if confirm_action 'Are you sure you want to remove "' $PASS '"?'; then
+                    RES=`pass rm -f "$PASS" | head -n 1 `
+                    alert "$RES"
+                    return 0
+                fi
+            fi
+            ;;
+
+        "copy")
+            ACT_STR="Copy"
+            ;&
+        "move")
+            [[ -z $ACT_STR ]] && ACT_STR="Move"
+
+
+            local PASS_FROM=$(select_password "$ACT_STR password from: ")
+            if [[ -z $PASS_FROM ]]; then
+                return 1
+            fi
+
+            local PASS_TO=$(echo -e "" | rofi -dmenu -p "$ACT_STR password to: " )
+
+            if [[ ! -z $PASS_TO ]]; then
+                if confirm_action 'Are you sure you want to ' $ACTION '"' $PASS_FROM '" to "' $PASS_TO '"?'; then
+                    local ACT=`echo $ACTION | sed 's/[aeiou]//g'`
+
+                    RES=`pass $ACT "$PASS_FROM" "$PASS_TO" | head -n 1 `
+                    alert "$RES"
+                    return 0
+                fi
+            fi
+            ;;
+    esac
+
+    return 1
+}
+
+
+if ! main $*; then
+    alert 'Canceled'
+fi
